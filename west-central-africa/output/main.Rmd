@@ -1,0 +1,264 @@
+---
+title: "Institutions and Corruption Analysis"
+author: "Gabriel"
+date: "2025-03-27"
+output: 
+  html_document:
+    theme: cosmo
+    highlight: textmate
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setting up and data imports
+
+```{r import-packages, echo=FALSE}
+#library
+library(dplyr)|> suppressPackageStartupMessages()
+library(stringr)|> suppressPackageStartupMessages()
+library(ggplot2)|> suppressPackageStartupMessages()
+library(readr)|> suppressPackageStartupMessages()
+library(DT)|> suppressPackageStartupMessages()
+library(plotly)|> suppressPackageStartupMessages()
+library(plotly)|> suppressPackageStartupMessages()
+library(readxl)|> suppressPackageStartupMessages()
+library(tidyverse)|> suppressPackageStartupMessages()
+library(WDI)|> suppressPackageStartupMessages()
+
+
+```
+
+```{r data-import, echo=FALSE}
+# read excel files
+
+data_wjp_historical <- read_excel("input/2024_wjp_rule_of_law_index_HISTORICAL_DATA_FILE.xlsx",sheet = "Historical Data")
+data_wjp_indicators <- read_excel("input/WJP Indicators.xlsx")
+data_cpi_indicators <- read_excel("input/CPI Indicators.xlsx", sheet = "data", skip = 3, 
+                       col_names = c("Country", "Code", "Year", "CPI score", "Rank", 
+                                     "Standard error", "Number of sources", "Lower CI", "Upper CI"))
+data_wb_regions <- read_excel("input/WB Regions.xlsx")
+#data_wdi <- read_excel("input/WDIEXCEL.xlsx")
+```
+
+## 1. Regional Averages of WJP Rule of Law Index 2024. 
+```{r regional_averages, echo=FALSE}
+
+#getting regions
+unique_regions <- unique(data_wjp_historical$Region)
+print(unique_regions)
+
+#filtering by year 2024 and by region
+data_regional <- data_wjp_historical %>%
+    filter(Year == 2024 )%>%
+    rename(overall = `WJP Rule of Law Index: Overall Score`) %>%
+    group_by(Region) %>%
+    summarize(
+    avg_score = mean(overall, na.rm = TRUE),
+    .groups = "drop")
+
+#creating bar chart
+ggplot(data_regional, aes(x = reorder(Region, avg_score), y = avg_score)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Regional Averages of WJP Rule of Law Index (2024)",
+    x = "Region",
+    y = "Average Overall Score"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  scale_y_continuous(limits = c(0, 1))
+
+```
+
+
+## 2. Income groups averages comparison for Constraints on Government Powers 2023 and 2024 respectively. 
+```{r income_averages, echo=FALSE}
+#view the imported data
+#head(data_wb_regions)
+
+data_wb_regions %>% drop_na(`Income group`)
+
+#income groups
+data_income <- data_wjp_historical %>%
+        filter(Year %in% c(2023, 2024)) %>%
+        rename(Code = `Country Code`) %>%
+        rename(factor1 = `Factor 1: Constraints on Government Powers`) %>%
+        left_join(data_wb_regions, by = c("Code" = "Code")) %>%
+        group_by(`Income group`, Year) %>%
+        filter(!is.na(`Income group`)) %>%
+        summarize(
+            avg_score = mean(factor1, na.rm = TRUE),
+            .groups = "drop")
+
+#creating ggplot
+p <- ggplot(data_income, aes(
+  x = `Income group`, 
+  y = avg_score, 
+  fill = factor(Year),
+  text = paste(
+    "Year:", Year, "<br>",
+    "Income Group:", `Income group`, "<br>",
+    "Average Score:", round(avg_score, 2)
+  )
+)) +  
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  labs(
+    title = "Average Constraints on Government Powers by Income Group",
+    x = "Income Group",
+    y = "Average Score (Factor 1)",
+    fill = "Year"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1))
+
+ggplotly(p, tooltip = "text")%>% 
+layout(
+    hoverlabel = list(bgcolor = "white"),
+    xaxis = list(
+      tickangle = -45,  
+      automargin = TRUE  
+    )
+  )
+
+```
+
+## 3. Change over time in the WJP Rule of Law Index for Ghana, Sierra Leone, Liberia compared with the overall average for countries in sub-Saharan Africa from 2014 to 2024. 
+```{r time_graph, echo=FALSE}
+#head(data_wjp_historical)
+#unique_years <- unique(data_wjp_historical$Year)
+#print(unique_years)
+data_plot <- data_wjp_historical %>%
+  select(Country, Year, `WJP Rule of Law Index: Overall Score`, Region) %>%
+  filter(Country %in% c("Ghana", "Sierra Leone", "Liberia")) %>%
+  bind_rows(
+    data_wjp_historical %>%
+      filter(Region == "Sub-Saharan Africa") %>%
+      group_by(Year) %>%
+      summarise(`WJP Rule of Law Index: Overall Score` = mean(`WJP Rule of Law Index: Overall Score`, na.rm = TRUE)) %>%
+      mutate(Country = "Sub-Saharan Africa Average")
+  ) %>%
+  rename(Score = `WJP Rule of Law Index: Overall Score`) %>%
+  mutate(Year = factor(Year, levels = unique(Year)),
+         Country = factor(Country, levels = c("Ghana", "Sierra Leone", "Liberia", "Sub-Saharan Africa Average")))
+
+p <- ggplot(data_plot, 
+       aes(x = Year, 
+           y = Score,  
+           color = Country,                             
+           group = Country,
+           text = paste("Year:", Year, "<br>",
+                        "Country:", Country, "<br>",
+                        "Score:", round(Score, 3)))) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(color = "Country")                               
+
+ggplotly(p, tooltip = "text") %>% 
+  layout(
+    hoverlabel = list(bgcolor = "white"),
+    xaxis = list(
+      tickangle = -45,  
+      automargin = TRUE  
+    )
+  )
+```
+
+## 4. Statistical Relationship. 
+### Analysis
+From the onset, we can see a strong relationship between the WJP Rule of Law Index on the Corruption Perception index CPI. Wth everthing else holding constant, an increase of 1 on the Rule of Law Index, would result in a 1.17 increase points in CPI. 
+It is worth mentioning that, through interactions we can see how the Rule of Law Index differs per region. From the model we can conclude that some regions will see a greater impact on their CPI, compared to SubSaharan Africa (MiddleEast and North Africa). Meanwhile other countries see a decrease on their CPI. This could be related to bias related to, how much of an impact would better rule of law would impact in Africa, contraray to Europe, where institutions are more established. 
+```{r statistical_relationship, echo=FALSE}
+#view data
+#names(data_wjp_indicators)
+#names(data_cpi_indicators)
+
+#using wdi r package
+wdi_data <- WDI(
+  indicator = c(
+    # Existing indicators
+    "NY.GDP.MKTP.CD",        
+    "SP.POP.TOTL",            
+    "AG.LND.TOTL.K2",         
+    # New indicators
+    "NY.GDP.PCAP.CD",         
+    "NY.GDP.MKTP.KD.ZG",      
+    "GE.EST",                 
+    "CC.EST"                  
+  ),
+  country = "all",
+  start = 2014,
+  end = 2024,
+  extra = TRUE  
+)
+
+#subsetting for easier management
+subset_cpi <- data_cpi_indicators %>%
+  select(Country, Code, Year, `CPI score`)
+
+subset_wjp <- data_wjp_indicators %>%
+  select(Country, Year, `Country Code`, `WJP Rule of Law Index: Overall Score`)
+
+#merging both subsets
+merged_data <- subset_wjp %>%
+  left_join(
+    subset_cpi,
+    by = c("Country", "Year", "Country Code" = "Code")  
+  )
+
+#mergin with wdi data
+data_final <- merged_data %>%
+  left_join(
+    wdi_data,
+    by = c("Country Code" = "iso3c", "Year" = "year")
+  ) %>%
+  filter(Year >= 2014)
+
+#dropping unnecesary columns
+data_final <- data_final %>%
+  select(-country, -status, -lastupdated, -capital, -iso2c, -capital, -longitude, -latitude)
+
+#names(data_final)
+
+#renaming variables
+data_final <- data_final %>%
+  rename(
+    country = Country,
+    year = Year,
+    country_code = `Country Code`,  
+    wjp_rule_of_law_score = `WJP Rule of Law Index: Overall Score`,
+    cpi_score = `CPI score`,
+    gdp_usd = NY.GDP.MKTP.CD,               
+    population = SP.POP.TOTL,               
+    land_area_km2 = AG.LND.TOTL.K2,         
+    gdp_per_capita_usd = NY.GDP.PCAP.CD,    
+    gdp_growth_pct = NY.GDP.MKTP.KD.ZG,     
+    govt_effectiveness = GE.EST,            
+    control_corruption = CC.EST,
+    income_group = income,                  
+    lending_category = lending              
+    )
+#standardize wjp score
+data_final$wjp_rule_of_law_score <- data_final$wjp_rule_of_law_score * 100
+
+data_final <- data_final %>%
+  mutate(
+    region = factor(region),  
+    region = relevel(region, ref = "Sub-Saharan Africa")  
+  )
+
+#creating regression models, only for gdp and population per region
+model_interaction <- lm(
+  cpi_score ~ wjp_rule_of_law_score * region + log(gdp_usd) + log(population),
+  data = data_final
+)
+summary(model_interaction)
+
+
+
+```
